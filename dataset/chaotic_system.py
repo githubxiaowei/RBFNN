@@ -1,7 +1,9 @@
 import numpy as np
 import numba
 from math import *
-
+from utils import rescale
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 def dxdt(F, X, t, h=1e-2):
     assert(len(F )==len(X))
@@ -52,9 +54,9 @@ def gen_model(name: str):
 
 
 def Rossler():
-    A = 0.25
-    B = 1
-    C = 5
+    A = 0.4
+    B = 0.5
+    C = 4.5
     x0, y0, z0 = -2.0, 2.0, 0.2
 
     def f1(X, t):
@@ -69,7 +71,7 @@ def Rossler():
         x, y, z = X[0], X[1], X[2]
         return B + z * (x - C)
 
-    return [f1, f2, f3], [x0, y0, z0], 2e-1
+    return [f1, f2, f3], [x0, y0, z0], 1e-1
 
 
 def Switch():
@@ -144,7 +146,7 @@ def Chua():
         x, y, z = X[0], X[1], X[2]
         return -b * y
 
-    return [f1, f2, f3], [x0, y0, z0], 5e-2
+    return [f1, f2, f3], [x0, y0, z0], 1e-1
 
 
 def Lorentz():
@@ -169,7 +171,7 @@ def Lorentz():
         x, y, z = X[0], X[1], X[2]
         return x * y - C * z
 
-    return [f1, f2, f3], [x0, y0, z0], 2e-2
+    return [f1, f2, f3], [x0, y0, z0], 5e-2
 
 
 def Chen():
@@ -195,3 +197,77 @@ def Chen():
         return x * y - b * z
 
     return [f1, f2, f3], [x0, y0, z0], 2e-2
+
+if __name__ == '__main__':
+    names = [
+        'rossler',
+        'rabinovich_fabrikant',
+        'lorentz',
+        'chen',
+        'chua',
+        'switch'
+    ]
+
+    N = 10000
+
+    for system_name in names:
+        print(system_name)
+
+        functions, start_point, step = gen_model(system_name)
+        x = trajectory(functions, start_point, N, step)
+        x = rescale(x).T
+
+        print(x.shape)
+        x = x.dot(np.array([0.3,0.3,0.4]))
+
+        x = rescale(x)
+        np.savetxt(system_name+'1d.txt', x, fmt='%.8e',delimiter=',')
+
+
+
+    # combine
+    # X = []
+    # for system_name in ['rossler', 'lorentz']:
+    #     print(system_name)
+    #
+    #     functions, start_point, step = gen_model(system_name)
+    #     x = trajectory(functions, start_point, N, step)
+    #     x = rescale(x).T  # (10000,3)
+    #     X.append(x)
+    #
+    # X = np.hstack(X)
+    #
+    # W = np.hstack([np.eye(3)] * 2).T/2
+    # print(W)
+    # X = X.dot(W)
+
+
+
+    def show(x):
+        x = np.atleast_2d(x)
+        print(x.shape)
+        plt.figure(figsize=(20, 6))
+        dim = ['x', 'y', 'z']
+        for i in range(x.shape[0]):
+            plt.subplot(3, 1, i + 1)
+            plt.plot(x[i, :].T, color='green', label='train set')
+            plt.ylabel(dim[i])
+            plt.legend(loc='upper right')
+        plt.xlabel('t')
+        plt.show()
+    # show(x.T)
+
+    def show_3d(x):
+        x = np.atleast_2d(x)
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111, projection='3d')
+        plt.plot(*x[:3, :], 'green', label='train set')
+        # plt.plot(*model.W_i[:,:3].T, 'ko',label='hidden layer')
+        plt.xlabel('x')
+        plt.ylabel('y')
+        plt.legend()
+        plt.title(system_name)
+        # plt.savefig('../figures/' + system_name + '_split.pdf')
+        plt.show()
+
+    # show_3d(x.T)

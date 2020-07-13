@@ -1,31 +1,76 @@
 import numpy as np
 from utils import *
 from scipy.cluster.vq import kmeans2
+from functools import partial
+from networkx import erdos_renyi_graph, adjacency_matrix
 
+class ReservoirEncoder:
+    def __init__(self, reservoirConf):
+        self.nz = reservoirConf.nz
+        self.nu = reservoirConf.nu
+        self.alpha = reservoirConf.alpha
+        self.target_rho = reservoirConf.target_rho
+        input_scale = reservoirConf.input_scale
 
-# import fcm, generate_conf
+        # sparse recurrent weights init
+        if reservoirConf.connectivity < 1:
+            g = erdos_renyi_graph(
+                reservoirConf.nz,
+                reservoirConf.connectivity,
+                seed=42,
+                directed=True
+            )
+            self.A = np.array(adjacency_matrix(g).todense()).astype(np.float)
 
+        # full-connected recurrent weights init
+        else:
+            self.A = np.random.uniform(-1, +1, size=(self.nz, self.nz))
+
+        rho = max(abs(np.linalg.eig(self.A)[0]))
+        self.A *= self.target_rho / rho
+        self.B = np.random.uniform(-input_scale, input_scale, size=(self.nz, self.nu))
+
+    def transform(self, x):
+        nx, nt = x.shape
+        z = np.zeros((self.nz, nt))
+        for i in range(nx//self.nu):
+            u = x[i * self.nu:(i + 1) * self.nu]
+            z = (1 - self.alpha) * z + self.alpha * np.tanh(self.A @ z + self.B @ u)
+        # z = rescale(z)
+        return z
+
+    def echostate(self, x):
+        nx, nt = x.shape
+        z = np.zeros((self.nz, nt))
+        for i in range(nt):
+            u = x[-self.nu:,i]
+            z[:,i] = (1 - self.alpha) * z[:,i-1] + self.alpha * np.tanh(self.A @ z[:,i-1] + self.B @ u)
+        # z = rescale(z)
+        return z
 
 class RBFNN:
-    def __init__(self, N_h,
-                 skip_con=True,
-                 bias=True,
-                 reweight=None,
-                 sigma=10,
-                 method='ridge'):
 
-        self.skip_con = skip_con
-        self.bias = bias
-        self.reweight = reweight
+    def __init__(self,  **kwargs):
+        self.conf = kwargs
+        self.skip_con = kwargs.get('skip_con', 1)
+        self.bias = kwargs.get('bias', 1)
         self.N_i = None
         self.N_o = None
-        self.N_h = N_h
-        self.N_f = N_h
-        self.sigma = sigma
+        self.N_h = kwargs.get('N_h', 1)
+        self.N_f = self.N_h
+        self.sigma = kwargs.get('sigma', 1)
         self.beta = 1e-6
-        self.sigmas = self.sigma * np.ones((self.N_h, 1))
-        self.method = method
-        # self.linear_weight = lw if lw else 1
+        self.sigmas = np.ones((self.N_h, 1))
+        self.method = kwargs.get('method', 'ridge')
+        self.activation = kwargs.get('activatioin', 'rbf')
+        self.W_i, self.sigmas = kwargs.get('centers', (None,None))
+        self.reservoirConf = kwargs.get('reservoirConf', None)
+        self.REncoder = ReservoirEncoder(self.reservoirConf) if self.reservoirConf is not None else None
+        if self.REncoder:
+            self.use_reseroir_state = kwargs.get('use_reseroir_state', False)
+            self.encoder_type = kwargs.get('encoder_type',  1)
+            self.encoder_func = self.REncoder.transform if self.encoder_type == 1 else self.REncoder.echostate
+
 
     @staticmethod
     def pairwise_distances(X, Y):
@@ -34,46 +79,31 @@ class RBFNN:
         return D
 
     @staticmethod
-    def col_softmax(x):
+    def col_normalize(x, f):
         if x.shape[0] == 0:
             return x
-        x_col_max = x.max(axis=0)
-        x_col_max = x_col_max.reshape([1, x.shape[1]])
-        x = x - x_col_max
-        x_exp = np.exp(x)
-        x_exp_col_sum = x_exp.sum(axis=0).reshape([1, x.shape[1]])
-        softmax = x_exp / x_exp_col_sum
-        return softmax
+        fx = f(x)
+        fx_sum = fx.sum(axis=0).reshape([1, fx.shape[1]])
+        return fx / fx_sum
 
-    @staticmethod
-    def col_normalize(x):
-        if x.shape[0] == 0:
-            return x
-        x_sum = x.sum(axis=0).reshape([1, x.shape[1]])
-        softmax = x / x_sum
-        return softmax
-
-    def _pre_output(self, X):
-
+    def _pre_output(self, X, Z=None):
         # 隐层输出
         if self.N_h > 0:
-            H = np.exp(
-                -self.pairwise_distances(self.W_i, X.T) /
-                self.sigmas.reshape((-1, 1))
-            )
+            if self.activation == 'rbf' or self.activation == 'rbf-random':
+                H = np.exp(
+                    -self.pairwise_distances(self.W_i, Z.T) /
+                    (2*self.sigma**2*self.sigmas.reshape((-1, 1)))
+                )
+            elif self.activation == 'sigmoid':
+                H = np.tanh(self.W_i.dot(np.vstack([X, np.ones([1, X.shape[1]])])))
+
         else:
             H = np.empty((0, X.shape[1]))
 
-        if self.reweight is not None:
-            func = dict(
-                average=self.col_normalize,
-                softmax=self.col_softmax
-            )[self.reweight]
+        if self.REncoder and self.use_reseroir_state:
+            H = np.vstack([H, Z])
+            self.N_f += Z.shape[0]
 
-            # pre_weight = func(np.vstack([H[:self.N_h], self.linear_weight * ones]))
-            pre_weight = func(H[:self.N_h])
-            H[:self.N_h] = pre_weight
-            # H[self.N_h:] *= pre_weight[-1:]
 
         if self.skip_con:
             H = np.vstack([H, X])
@@ -91,15 +121,24 @@ class RBFNN:
         self.N_i = X.shape[0]
         self.N_o = Y.shape[0]
 
+        Z = self.encoder_func(X) if self.REncoder else X
+
         if self.N_h <= 0:
             self.W_i = np.empty((0, self.N_i))
+
         else:
             # self.W_i, _ = kmeans2(X.T, self.N_h, minit='points')
-            # self.W_i = np.random.uniform(-self.sigma,self.sigma, (self.N_h, self.N_i))
-            # self.W_i = X.T[np.random.choice(X.shape[1],self.N_h,replace=False)]
-            self.W_i, self.sigmas = fcm(X.T, self.N_h)
+            if self.activation == 'rbf':
+                if self.W_i is None:
+                    self.W_i, self.sigmas = fcm(Z.T, self.N_h)
+                    # print('generate centers by FCM')
 
-        H = self._pre_output(X)
+            elif self.activation == 'rbf-random' or self.activation == 'sigmoid':
+                self.W_i = np.random.uniform(-1, 1, (self.N_h, self.N_i ))
+                # self.W_i = X.T[np.random.choice(X.shape[1],self.N_h,replace=False)]
+
+
+        H = self._pre_output(X, Z)
 
         if self.method == 'ridge':
             self.W_o = ridge_regressor(H, Y, self.beta)
@@ -108,33 +147,19 @@ class RBFNN:
             self.W_o = gradient_descent(H, Y, [])
 
     def predict(self, X):
-        H = self._pre_output(X)
+        Z = self.encoder_func(X) if self.REncoder else X
+        H = self._pre_output(X, Z)
         return self.W_o.dot(H)
-
-    def predict_multistep(self, X, horizon):
-        Y = np.empty((self.N_o * horizon, X.shape[1]))
-        Z = np.vstack([X, Y])
-        start = X.shape[0]
-        Z[start:start + self.N_o, :] = self.predict(X)
-        for i in range(1, horizon):
-            Z[start + i * self.N_o: start + (i + 1) * self.N_o, :] = self.predict(
-                Z[i * self.N_o: start + i * self.N_o, :])
-        return Z[start:, :]
 
     @staticmethod
     def grid_search(train, test, confs):
         res = []
         for conf in generate_conf(confs):
-
+            # print(conf)
             x_train, y_train = train
             x_test, y_test = test
 
-            model = RBFNN(conf['n_neuron'],
-                          skip_con=conf['skip_con'],
-                          reweight=conf['reweight'],
-                          sigma=conf['sigma'],
-                          method=conf['method'],
-                          )
+            model = RBFNN(**conf)
 
             model.train(x_train, y_train)
 
@@ -151,3 +176,54 @@ class RBFNN:
             mean_list = np.average(mean_list, axis=0)
             res.append((mean_list, conf))
         return res
+
+    @staticmethod
+    def parameter_selecting(confs, trainset, valset):
+        """
+        select best model parameters
+        :param trainset:  (x_train, y_train)
+        :param valset: (x_val, Y_val)
+        :return: configurations with smallest err
+        """
+        result = RBFNN.grid_search(trainset, valset, confs)
+        err = []
+        for i in range(len(result)):
+            line, conf = result[i][0], result[i][1]
+            err.append(line[-1])
+        best_one = np.argmin(err)
+        return result[best_one][1]
+
+    @staticmethod
+    def prepare_train(series, n_history=5):
+        """
+        :param series:
+        :param n_history: num of history points used for inputs
+        :return:
+        """
+        num_train = series.shape[1] - n_history
+        horizon = 1
+        x_train = np.vstack([select_samples(series, i, num_train) for i in range(n_history)])
+        y_train = np.vstack([select_samples(series, n_history + i, num_train) for i in range(horizon)])
+        assert (x_train.shape[1] == y_train.shape[1])
+        return [x_train, y_train]
+
+    @staticmethod
+    def prepare_val(series, n_history=5, horizon=30):
+        num_val = series.shape[1] - horizon - n_history + 1
+        x_val = np.vstack([select_samples(series, i, num_val) for i in range(n_history)])
+        y_val = np.vstack([select_samples(series, n_history + i, num_val) for i in range(horizon)])
+        assert( x_val.shape[1] == y_val.shape[1])
+        return [ x_val, y_val]
+
+    @staticmethod
+    def split_train_validation(k_fold, series, **kwargs):
+        horizon = kwargs.get('horizon', 30)
+        n_history = kwargs.get('n_history', 5)
+
+        n_samples = series.shape[1]
+        n_val = n_samples//k_fold
+
+        trainset = RBFNN.prepare_train(series[:,:-n_val], n_history=n_history)
+        valset = RBFNN.prepare_val(series[:,-n_val:], n_history=n_history, horizon=horizon)
+
+        return trainset, valset
