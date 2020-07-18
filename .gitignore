@@ -1,0 +1,6 @@
+result
+dataset/*.txt
+*.csv
+*.txt
+.idea
+.ipynb_checkpoints

@@ -186,6 +186,53 @@ class RBFNN:
             res.append((mean_list, conf))
         return res
 
+    @staticmethod
+    def parameter_selecting(confs, trainset, valset):
+        """
+        select best model parameters
+        :param trainset:  (x_train, y_train)
+        :param valset: (x_val, Y_val)
+        :return: configurations with smallest err
+        """
+        result = RBFNN.grid_search(trainset, valset, confs)
+        err = []
+        for i in range(len(result)):
+            line, conf = result[i][0], result[i][1]
+            err.append(line[-1])
+        best_one = np.argmin(err)
+        return result[best_one][1]
 
+    @staticmethod
+    def prepare_train(series, n_history=5):
+        """
+        :param series:
+        :param n_history: num of history points used for inputs
+        :return:
+        """
+        num_train = series.shape[1] - n_history
+        horizon = 1
+        x_train = np.vstack([select_samples(series, i, num_train) for i in range(n_history)])
+        y_train = np.vstack([select_samples(series, n_history + i, num_train) for i in range(horizon)])
+        assert (x_train.shape[1] == y_train.shape[1])
+        return [x_train, y_train]
 
+    @staticmethod
+    def prepare_val(series, n_history=5, horizon=30):
+        num_val = series.shape[1] - horizon - n_history + 1
+        x_val = np.vstack([select_samples(series, i, num_val) for i in range(n_history)])
+        y_val = np.vstack([select_samples(series, n_history + i, num_val) for i in range(horizon)])
+        assert (x_val.shape[1] == y_val.shape[1])
+        return [x_val, y_val]
 
+    @staticmethod
+    def split_train_validation(k_fold, series, **kwargs):
+        horizon = kwargs.get('horizon', 30)
+        n_history = kwargs.get('n_history', 5)
+
+        n_samples = series.shape[1]
+        n_val = n_samples // k_fold
+
+        trainset = RBFNN.prepare_train(series[:, :-n_val], n_history=n_history)
+        valset = RBFNN.prepare_val(series[:, -n_val:], n_history=n_history, horizon=horizon)
+
+        return trainset, valset

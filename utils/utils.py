@@ -151,11 +151,14 @@ def select_samples(X, start, num):
     return np.atleast_2d(X)[:, start:start + num]
 
 
-def rescale(x):
+def rescale(x, recover=False):
     x = np.atleast_2d(x)
     row_max = np.max(x, axis=1).reshape((x.shape[0], 1))
     row_min = np.min(x, axis=1).reshape((x.shape[0], 1))
-    return (x - row_min) / (row_max - row_min)
+    if recover:
+        return (x - row_min) / (row_max - row_min), (row_min, row_max)
+    else:
+        return (x - row_min) / (row_max - row_min)
 
 
 def  extract_num(conf):

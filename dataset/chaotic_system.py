@@ -203,9 +203,7 @@ if __name__ == '__main__':
         'rossler',
         'rabinovich_fabrikant',
         'lorentz',
-        'chen',
         'chua',
-        'switch'
     ]
 
     N = 10000
@@ -215,31 +213,18 @@ if __name__ == '__main__':
 
         functions, start_point, step = gen_model(system_name)
         x = trajectory(functions, start_point, N, step)
-        x = rescale(x).T
+        x, min_max3d = rescale(x, recover=True)
 
-        print(x.shape)
-        x = x.dot(np.array([0.3,0.3,0.4]))
-
-        x = rescale(x)
+        np.savetxt(system_name + '.txt', x.T, fmt='%.8e', delimiter=',')
+        x = np.array([[0.3,0.3,0.4]]).dot(x)
+        x, min_max1d = rescale(x, recover=True)
         np.savetxt(system_name+'1d.txt', x, fmt='%.8e',delimiter=',')
 
+        scales = np.vstack([np.hstack(min_max3d),
+                            np.hstack(min_max1d)])
+        np.savetxt(system_name+'_recover.txt', scales, fmt='%.8e',delimiter=',')
 
 
-    # combine
-    # X = []
-    # for system_name in ['rossler', 'lorentz']:
-    #     print(system_name)
-    #
-    #     functions, start_point, step = gen_model(system_name)
-    #     x = trajectory(functions, start_point, N, step)
-    #     x = rescale(x).T  # (10000,3)
-    #     X.append(x)
-    #
-    # X = np.hstack(X)
-    #
-    # W = np.hstack([np.eye(3)] * 2).T/2
-    # print(W)
-    # X = X.dot(W)
 
 
 
@@ -255,7 +240,7 @@ if __name__ == '__main__':
             plt.legend(loc='upper right')
         plt.xlabel('t')
         plt.show()
-    # show(x.T)
+
 
     def show_3d(x):
         x = np.atleast_2d(x)
@@ -269,5 +254,3 @@ if __name__ == '__main__':
         plt.title(system_name)
         # plt.savefig('../figures/' + system_name + '_split.pdf')
         plt.show()
-
-    # show_3d(x.T)

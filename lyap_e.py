@@ -26,20 +26,20 @@ class Dict(dict):
 
 
 names = [
-    # 'rossler',
-    # 'rabinovich_fabrikant',
-    'lorentz1d',
+    # 'rossler1d',
+    'rabinovich_fabrikant1d',
+    # 'lorentz1d',
     # 'chen',
-    # 'chua',
+    'chua1d',
     # 'switch'
 ]
 
 n_dim = 1
 horizon = 1
 N = 10000
-n_history = 5  # 使用 n 个历史点作为输入
+n_history = 10  # 使用 n 个历史点作为输入
 N_h = 200
-num_train = 4000
+num_train = 2000
 train_start = 0
 num_test = 2000
 test_start = 5000
@@ -117,13 +117,15 @@ for system_name in names:
     # x = np.array([[0.3, 0.3, 0.4]]) @ x
 
     x_train = np.vstack([select_samples(x, train_start + i, num_train) for i in range(n_history)])
-    x_test = np.vstack([select_samples(x, test_start + i, num_test) for i in range(n_history)])
-    y_test = select_samples(x, test_start + n_history + horizon - 1, num_test)
     y_train = select_samples(x, train_start + n_history + horizon - 1, num_train)
 
+    x_test = np.vstack([select_samples(x, test_start + i, num_test) for i in range(n_history)])
+    y_test = select_samples(x, test_start + n_history + horizon - 1, num_test)
+
+
     model_confs = []
-    # model_confs += [('RBFLN RE', N_h, 1, sigma, reservoirConf, 1, False) for sigma in [1]]
-    model_confs += [('RBFLN RE', N_h, 1, sigma, reservoirConf, 1, False) for sigma in [1/16, 1/8, 1/4, 1/2, 1, 2, 4, 8, 16]]
+    model_confs += [('RBFLN RE', N_h, 1, sigma, reservoirConf, 1, False) for sigma in [1]]
+    # model_confs += [('RBFLN RE', N_h, 1, sigma, reservoirConf, 1, False) for sigma in [1/16, 1/8, 1/4, 1/2, 1, 2, 4, 8, 16]]
 
     Predictions = [np.empty((n_dim, num_test)) for _ in range(len(model_confs))]
     MSE = [0.0] * len(model_confs)
@@ -142,6 +144,9 @@ for system_name in names:
     y_pred = model.predict_multistep(x_test[:,:1], num_test)
     y_pred = y_pred.reshape((num_test,n_dim)).T
 
+    np.savetxt(system_name + '_pred.txt', y_pred.T, fmt='%.8e', delimiter=',')
+    np.savetxt(system_name + '_test.txt', y_test.T, fmt='%.8e', delimiter=',')
+
     # fig = plt.figure(figsize=(6, 6))
     # ax = fig.add_subplot(111, projection='3d')
     # elev, azim = 30, -45
@@ -155,24 +160,24 @@ for system_name in names:
     # plt.savefig(system_name + '_replicate.pdf')
 
 
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(20, 6))
     dim = ['x', 'y', 'z']
     for i in range(n_dim):
         plt.subplot(n_dim, 1, i + 1)
-        plt.plot(y_pred[i].T, color='r', label='generated track')
-        plt.plot(y_test[i].T, color='g', label='ground truth')
+        plt.plot(y_test[i].T, color='black', label='ground truth')
+        plt.plot(y_pred[i].T, color='red', label='generated track')
         plt.ylabel(dim[i])
         if i == 0:
             plt.legend(loc='upper right')
     plt.xlabel('t')
-    plt.savefig(system_name + '_replicate_dim.pdf')
+    # plt.savefig(system_name + '_replicate_dim.pdf')
 
 
-    # y_gen = model.predict_multistep(x_train[:,:1], x.shape[1])
-    # y_gen = y_gen.reshape(( -1, 3)).T
+    # y_gen = model.predict_multistep(x_train[:,:1], x.shape[-1])
+    # y_gen = y_gen.reshape((-1, n_dim)).T
     # print('LLE test:', LLE(x.T))
     # print('LLE pred:', LLE(y_gen.T))
-
+    #
     # print('CD test:', CD(x.T))
     # print('CD pred:', CD(y_gen.T))
 
