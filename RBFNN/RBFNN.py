@@ -3,7 +3,7 @@ from utils import *
 from scipy.cluster.vq import kmeans2
 from functools import partial
 from networkx import erdos_renyi_graph, adjacency_matrix
-
+from enum import Enum
 
 class ReservoirEncoder:
     def __init__(self, reservoirConf):
@@ -12,6 +12,7 @@ class ReservoirEncoder:
         self.alpha = reservoirConf.alpha
         self.target_rho = reservoirConf.target_rho
         input_scale = reservoirConf.input_scale
+        self.state = None
 
         # sparse recurrent weights init
         if reservoirConf.connectivity < 1:
@@ -31,13 +32,16 @@ class ReservoirEncoder:
         self.A *= self.target_rho / rho
         self.B = np.random.uniform(-input_scale, input_scale, size=(self.nz, self.nu))
 
+    def state_transition(self, z, u):
+        z = (1 - self.alpha) * z + self.alpha * np.tanh(self.A @ z + self.B @ u)
+        return z
+
     def transform(self, x):
         nx, nt = x.shape
         z = np.zeros((self.nz, nt))
         for i in range(nx // self.nu):
             u = x[i * self.nu:(i + 1) * self.nu]
-            z = (1 - self.alpha) * z + self.alpha * np.tanh(self.A @ z + self.B @ u)
-        # z = rescale(z)
+            z = self.state_transition(z, u)
         return z
 
     def echostate(self, x):
@@ -45,33 +49,77 @@ class ReservoirEncoder:
         z = np.zeros((self.nz, nt))
         for i in range(nt):
             u = x[-self.nu:, i]
-            z[:, i] = (1 - self.alpha) * z[:, i - 1] + self.alpha * np.tanh(self.A @ z[:, i - 1] + self.B @ u)
-        # z = rescale(z)
+            z[:, i] = self.state_transition(z[:, i-1], u)
         return z
+
+class ModelType(Enum):
+    VAR = 1
+    ESN = 2
+    RBFN = 3
+    RBFLN = 4
+    RBFLN_RE = 5
+    ESN_ATTN = 6
 
 
 class RBFNN:
 
-    def __init__(self, **kwargs):
+    def __init__(self, model_type, **kwargs):
         self.conf = kwargs
-        self.skip_con = kwargs.get('skip_con', 1)
-        self.bias = kwargs.get('bias', 1)
+        self.model_type = model_type
+        self.REncoder = None
+        self.sigmas = None
+        self.bias = True
+        self.W_i = None
         self.N_i = None
         self.N_o = None
-        self.N_h = kwargs.get('N_h', 1)
-        self.N_f = self.N_h
-        self.sigma = kwargs.get('sigma', 1)
+        self.N_f = 0
         self.beta = 1e-6
-        self.sigmas = np.ones((self.N_h, 1))
-        self.method = kwargs.get('method', 'ridge')
-        self.activation = kwargs.get('activatioin', 'rbf')
-        self.W_i, self.sigmas = kwargs.get('centers', (None, None))
-        self.reservoirConf = kwargs.get('reservoirConf', None)
-        self.REncoder = ReservoirEncoder(self.reservoirConf) if self.reservoirConf is not None else None
-        if self.REncoder:
-            self.use_reseroir_state = kwargs.get('use_reseroir_state', False)
-            self.encoder_type = kwargs.get('encoder_type', 1)
-            self.encoder_func = self.REncoder.transform if self.encoder_type == 1 else self.REncoder.echostate
+        self.method = 'ridge'
+        self.prepare_reservoir = False
+
+        if self.model_type == ModelType.RBFLN:
+            self.skip_con = 1
+            self.activation = 'rbf'
+            self.N_h = kwargs.get('N_h')
+            self.sigma = kwargs.get('sigma', 1)
+
+        elif self.model_type == ModelType.VAR:
+            self.skip_con = 1
+            self.N_h = 0
+
+        elif self.model_type == ModelType.RBFN:
+            self.skip_con = 0
+            self.activation = 'rbf'
+            self.N_h = kwargs.get('N_h')
+            self.sigma = kwargs.get('sigma', 1)
+
+        elif self.model_type == ModelType.ESN:
+            self.skip_con = 1
+            self.N_h = 0
+            self.reservoirConf = kwargs.get('reservoirConf')
+            self.REncoder = ReservoirEncoder(self.reservoirConf)
+            self.encoder_func = self.REncoder.echostate
+            self.prepare_reservoir = True
+
+        elif self.model_type == ModelType.RBFLN_RE:
+            self.skip_con = 1
+            self.activation = kwargs.get('activation', 'rbf')
+            self.N_h = kwargs.get('N_h')
+            self.sigma = kwargs.get('sigma', 1)
+            self.reservoirConf = kwargs.get('reservoirConf')
+            self.REncoder = ReservoirEncoder(self.reservoirConf)
+            # self.encoder_func = self.REncoder.echostate
+            self.encoder_func = self.REncoder.transform if kwargs.get('encoder', 'transform') == 'transform' else self.REncoder.echostate
+
+        elif self.model_type == ModelType.ESN_ATTN:
+            self.skip_con = 1
+            self.activation = 'rbf'
+            self.N_h = kwargs.get('N_h')
+            self.sigma = kwargs.get('sigma', 1)
+            self.reservoirConf = kwargs.get('reservoirConf')
+            self.REncoder = ReservoirEncoder(self.reservoirConf)
+            self.encoder_func = self.REncoder.echostate
+            self.prepare_reservoir = True
 
     @staticmethod
     def pairwise_distances(X, Y):
@@ -80,48 +128,61 @@ class RBFNN:
         return D
 
     @staticmethod
-    def col_normalize(x, f):
+    def col_normalize(x, f=None):
         if x.shape[0] == 0:
             return x
-        fx = f(x)
+
+        fx = f(x) if f else x
         fx_sum = fx.sum(axis=0).reshape([1, fx.shape[1]])
         return fx / fx_sum
 
     def _pre_output(self, X, Z=None):
-        # 隐层输出
-        if self.N_h > 0:
-            if self.activation == 'rbf' or self.activation == 'rbf-random':
-                H = np.exp(
-                    -self.pairwise_distances(self.W_i, Z.T) /
-                    (2 * self.sigma ** 2 * self.sigmas.reshape((-1, 1)))
-                )
-            elif self.activation == 'sigmoid':
-                H = np.tanh(self.W_i.dot(np.vstack([X, np.ones([1, X.shape[1]])])))
+        """
 
+        :param X: (N_i, N_samples)
+        :param Z: (nz, N_samples)
+        :param W_i: ((N_h, nz)
+        :return: H: (..., N_samples)
+        """
+
+        if self.N_h > 0:
+            H = np.exp(
+                -self.pairwise_distances(self.W_i, Z.T) /
+                (2 * self.sigma ** 2 * self.sigmas.reshape((-1, 1)))
+            )  # (N_h, N_samples)
         else:
             H = np.empty((0, X.shape[1]))
+        self.N_f = max(0, self.N_h)
 
-        if self.REncoder and self.use_reseroir_state:
-            H = np.vstack([H, Z])
-            self.N_f += Z.shape[0]
+        if self.REncoder:
+            if self.model_type == ModelType.ESN:
+                H = Z
+                self.N_f = Z.shape[0]
+            elif self.model_type == ModelType.ESN_ATTN:
+                assert(self.N_h > 0)
+                H = self.col_normalize(H)
+                H = self.W_i.T @ H
+                H = np.vstack([H, Z])
+                self.N_f = 2*Z.shape[0]
 
         if self.skip_con:
             H = np.vstack([H, X])
             self.N_f += self.N_i
 
-        ones = np.ones((1, H.shape[1]))
-
         if self.bias:
+            ones = np.ones((1, H.shape[1]))
             H = np.vstack([H, ones])
             self.N_f += 1
 
         return H
 
-    def train(self, X, Y):
+    def train(self, X, Y, num_prepare):
+
         self.N_i = X.shape[0]
         self.N_o = Y.shape[0]
 
         Z = self.encoder_func(X) if self.REncoder else X
+        X, Z = X[:, num_prepare:], Z[:, num_prepare:]
 
         if self.N_h <= 0:
             self.W_i = np.empty((0, self.N_i))
@@ -131,22 +192,21 @@ class RBFNN:
             if self.activation == 'rbf':
                 if self.W_i is None:
                     self.W_i, self.sigmas = fcm(Z.T, self.N_h)
-                    # print('generate centers by FCM')
 
-            elif self.activation == 'rbf-random' or self.activation == 'sigmoid':
+            elif self.activation == 'rbf-random':
                 self.W_i = np.random.uniform(-1, 1, (self.N_h, self.N_i))
                 # self.W_i = X.T[np.random.choice(X.shape[1],self.N_h,replace=False)]
 
         H = self._pre_output(X, Z)
 
-        if self.method == 'ridge':
-            self.W_o = ridge_regressor(H, Y, self.beta)
-        elif self.method == 'gradient':
-            linear_slice = [i for i in range(self.N_h, self.N_h + self.N_i)] if self.skip_con else []
-            self.W_o = gradient_descent(H, Y, [])
+        self.W_o = ridge_regressor(H, Y, self.beta)
 
-    def predict(self, X):
+
+    def predict(self, X, num_prepare=0):
+
         Z = self.encoder_func(X) if self.REncoder else X
+        X, Z = X[:, num_prepare:], Z[:, num_prepare:]
+
         H = self._pre_output(X, Z)
         return self.W_o.dot(H)
 
@@ -156,36 +216,22 @@ class RBFNN:
         start = X.shape[0]
         Z[start:start + self.N_o, :] = self.predict(X)
         for i in range(1, horizon):
-            Z[start + i * self.N_o: start + (i + 1) * self.N_o, :] = self.predict(
-                Z[i * self.N_o: start + i * self.N_o, :])
+            Z[start + i * self.N_o: start + (i + 1) * self.N_o, :] = self.predict(Z[i * self.N_o: start + i * self.N_o, :])
         return Z[start:, :]
 
-    @staticmethod
-    def grid_search(train, test, confs):
-        res = []
-        for conf in generate_conf(confs):
-            # print(conf)
-            x_train, y_train = train
-            x_test, y_test = test
-
-            model = RBFNN(**conf)
-
-            model.train(x_train, y_train)
-
-            horizon = y_test.shape[0] // model.N_o
-            y_mutistep = model.predict_multistep(x_test, horizon)
-
-            mean_list = []
-            for i in range(len(x_test)):
-                A = y_mutistep[:, i:i + 1]
-                B = y_test[:, i:i + 1]
-                err_list = error_multistep(mse, A, B, dim=model.N_o)
-                mean_list.append(err_list)
-
-            mean_list = np.average(mean_list, axis=0)
-            res.append((mean_list, conf))
-        return res
-
-
+    def predict_multistep_esn(self, X, horizon):
+        Y = np.empty((self.N_o * horizon, 1))
+        Z = self.encoder_func(X)
+        z = Z[:, -1:]
+        x = X[:, -1:]
+        for i in range(horizon):
+            H = self._pre_output(x, z)
+            y = self.W_o.dot(H)
+            Y[i * self.N_o: (i + 1) * self.N_o] = y
+            x = np.vstack([x, y])[-self.N_i:]
+            z = self.REncoder.state_transition(z, y)
+        print(X[:,-2:])
+        print(Y[:2])
+        return Y
 
 

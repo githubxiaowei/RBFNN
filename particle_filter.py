@@ -4,10 +4,10 @@ from utils import *
 import tqdm
 
 names = [
-    'rossler',
-    'rabinovich_fabrikant',
+    # 'rossler',
+    # 'rabinovich_fabrikant',
     'lorentz',
-    'chua',
+    # 'chua',
 ]
 
 

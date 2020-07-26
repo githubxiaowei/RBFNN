@@ -11,7 +11,7 @@ from nolitsa import data, lyapunov
 from nolitsa.d2 import *
 import numpy as np
 import matplotlib.pyplot as plt
-from RBFNN import RBFNN
+from RBFNN import *
 from dataset.chaotic_system import *
 import pandas as pd
 import numpy as np
@@ -30,18 +30,19 @@ names = [
     'rabinovich_fabrikant1d',
     # 'lorentz1d',
     # 'chen',
-    'chua1d',
+    # 'chua1d',
     # 'switch'
 ]
 
 n_dim = 1
 horizon = 1
 N = 10000
-n_history = 10  # 使用 n 个历史点作为输入
+n_history = 1  # 使用 n 个历史点作为输入
 N_h = 200
+num_prepare = 1000
 num_train = 2000
-train_start = 0
 num_test = 2000
+train_start = 0
 test_start = 5000
 np.random.seed()
 nz = 100
@@ -95,14 +96,10 @@ def LLE(x):
 
 
 def gen_model(conf):
-    model_name, n_neuron, skip_con, sigma, rc, encoder_type, use_reseroir_state = conf
+    model_type, kwargs = conf
     conf_dict = dict(
-        N_h=n_neuron,
-        skip_con=skip_con,
-        sigma=sigma,
-        reservoirConf=rc,
-        encoder_type=encoder_type,
-        use_reseroir_state=use_reseroir_state
+        model_type=model_type,
+        **kwargs
     )
     return RBFNN(**conf_dict)
 
@@ -116,32 +113,42 @@ for system_name in names:
     x += np.random.randn(*x.shape)*0.001
     # x = np.array([[0.3, 0.3, 0.4]]) @ x
 
-    x_train = np.vstack([select_samples(x, train_start + i, num_train) for i in range(n_history)])
-    y_train = select_samples(x, train_start + n_history + horizon - 1, num_train)
-
-    x_test = np.vstack([select_samples(x, test_start + i, num_test) for i in range(n_history)])
-    y_test = select_samples(x, test_start + n_history + horizon - 1, num_test)
+    x_train = np.vstack([select_samples(x, train_start + i, num_train + num_prepare) for i in range(n_history)])
+    x_test = np.vstack([select_samples(x, test_start + i, num_test + num_prepare) for i in range(n_history)])
+    y_test = select_samples(x, test_start + num_prepare + n_history + horizon - 1, num_test)
+    y_train = select_samples(x, train_start + num_prepare + n_history + horizon - 1, num_train)
+    # plt.figure()
+    # plt.plot(x_test[:, num_prepare:].T, label='x')
+    # plt.plot(y_test.T, label='y')
+    # plt.legend()
+    # plt.show()
 
 
     model_confs = []
-    model_confs += [('RBFLN RE', N_h, 1, sigma, reservoirConf, 1, False) for sigma in [1]]
-    # model_confs += [('RBFLN RE', N_h, 1, sigma, reservoirConf, 1, False) for sigma in [1/16, 1/8, 1/4, 1/2, 1, 2, 4, 8, 16]]
+    # model_confs += [(ModelType.ESN, dict(reservoirConf=reservoirConf))]
+    # model_confs += [(ModelType.ESN_ATTN, dict(N_h=N_h, sigma=sigma, reservoirConf=reservoirConf))
+    #                 for sigma in [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16]]
+    # model_confs += [(ModelType.RBFLN_RE, dict(N_h=N_h, sigma=sigma, rese rvoirConf=reservoirConf))
+    #                 for sigma in [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16]]
+    model_confs += [(ModelType.ESN_ATTN, dict(N_h=N_h, sigma=sigma, reservoirConf=reservoirConf))
+                    for sigma in [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16]]
 
     Predictions = [np.empty((n_dim, num_test)) for _ in range(len(model_confs))]
     MSE = [0.0] * len(model_confs)
 
     for j, conf in enumerate(model_confs):
         model = gen_model(conf)
-        model.train(x_train, y_train)
-        Predictions[j] = model.predict(x_test)
+        model.train(x_train, y_train, num_prepare)
+        Predictions[j] = model.predict(x_test, num_prepare)
         MSE[j] = mse(Predictions[j], y_test)
         print('idx: {} MSE: {}'.format(j, MSE[j]))
 
     best_model = model_confs[np.argmin(MSE)]
     print(best_model)
     model = gen_model(best_model)
-    model.train(x_train, y_train)
-    y_pred = model.predict_multistep(x_test[:,:1], num_test)
+    model.train(x_train, y_train, num_prepare)
+    y_pred = model.predict_multistep_esn(x_test[:,:num_prepare+1], num_test)
+    # y_pred = model.predict_multistep(x_test[:, num_prepare:num_prepare+1], num_test)
     y_pred = y_pred.reshape((num_test,n_dim)).T
 
     np.savetxt(system_name + '_pred.txt', y_pred.T, fmt='%.8e', delimiter=',')
