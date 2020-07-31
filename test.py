@@ -57,8 +57,8 @@ for file in range(10):
     process_start_time = time.time()
     print('开始数据处理')
 
-    # for n_history in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200]:
-    for n_history in [1]:
+    for n_history in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200]:
+    # for n_history in [1]:
         for horizon in range(1,2):
             for system_name in names:
 
@@ -85,17 +85,17 @@ for file in range(10):
                 '''
                 model_confs = []
                 model_confs += [('ESN', ModelType.ESN, dict(reservoirConf=rc))]
-                # model_confs += [('RBFLN-RE-transform', ModelType.RBFLN_RE, dict(N_h=N_h, sigma=sigma, reservoirConf=rc, encoder='transform'))
-                #                 for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
+                model_confs += [('RBFLN-RE-transform', ModelType.RBFLN_RE, dict(N_h=N_h, sigma=sigma, reservoirConf=rc, encoder='transform'))
+                                for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
                 model_confs += [('RBFLN-RE-echostate', ModelType.RBFLN_RE, dict(N_h=N_h, sigma=sigma, reservoirConf=rc, encoder='echostate'))
                                 for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
                 model_confs += [('ESN-ATTN',ModelType.ESN_ATTN, dict(N_h=N_h, sigma=sigma, reservoirConf=rc))
                                 for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
-                # model_confs += [('RBFLN',ModelType.RBFLN, dict(N_h=N_h, sigma=sigma))
-                #                 for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
-                # model_confs += [('RBFN',ModelType.RBFN, dict(N_h=N_h, sigma=sigma))
-                #                 for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
-                # model_confs += [('VAR',ModelType.VAR, dict())]
+                model_confs += [('RBFLN',ModelType.RBFLN, dict(N_h=N_h, sigma=sigma))
+                                for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
+                model_confs += [('RBFN',ModelType.RBFN, dict(N_h=N_h, sigma=sigma))
+                                for sigma in [ 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
+                model_confs += [('VAR',ModelType.VAR, dict())]
 
                 model_names = [conf[0] for conf in model_confs]
 

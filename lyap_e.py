@@ -26,11 +26,11 @@ class Dict(dict):
 
 
 names = [
-    # 'rossler1d',
+    'rossler1d',
     'rabinovich_fabrikant1d',
-    # 'lorentz1d',
+    'lorentz1d',
     # 'chen',
-    # 'chua1d',
+    'chua1d',
     # 'switch'
 ]
 
@@ -78,7 +78,9 @@ def LLE(x):
     dt = 0.01
     meanperiod = 10
     maxt = 150
-    d = lyapunov.mle(x, maxt=maxt, window=meanperiod)
+    # d = lyapunov.mle(x, maxt=maxt, window=meanperiod)
+    d = lyapunov.mle_embed(np.squeeze(x), dim=[5], maxt=maxt, window=meanperiod, parallel=False)
+    d = np.squeeze(d)
     t = np.arange(maxt) * dt
     coefs = poly_fit(t, d, 1)
     print('LLE = ', coefs[0])
@@ -96,7 +98,7 @@ def LLE(x):
 
 
 def gen_model(conf):
-    model_type, kwargs = conf
+    _, model_type, kwargs = conf
     conf_dict = dict(
         model_type=model_type,
         **kwargs
@@ -125,13 +127,15 @@ for system_name in names:
 
 
     model_confs = []
-    # model_confs += [(ModelType.ESN, dict(reservoirConf=reservoirConf))]
-    # model_confs += [(ModelType.ESN_ATTN, dict(N_h=N_h, sigma=sigma, reservoirConf=reservoirConf))
-    #                 for sigma in [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16]]
-    # model_confs += [(ModelType.RBFLN_RE, dict(N_h=N_h, sigma=sigma, rese rvoirConf=reservoirConf))
-    #                 for sigma in [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16]]
-    model_confs += [(ModelType.ESN_ATTN, dict(N_h=N_h, sigma=sigma, reservoirConf=reservoirConf))
-                    for sigma in [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16]]
+    # model_confs += [('ESN', ModelType.ESN, dict(reservoirConf=reservoirConf))]
+    # model_confs += [('RBFLN-RE-transform', ModelType.RBFLN_RE, dict(N_h=N_h, sigma=sigma, reservoirConf=reservoirConf, encoder='transform'))
+    #     for sigma in [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
+    model_confs += [('RBFLN-RE-echostate', ModelType.RBFLN_RE, dict(N_h=N_h, sigma=sigma, reservoirConf=reservoirConf, encoder='echostate'))
+        for sigma in [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
+    # model_confs += [('ESN-ATTN', ModelType.ESN_ATTN, dict(N_h=N_h, sigma=sigma, reservoirConf=reservoirConf))
+    #                 for sigma in [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]]
+
+
 
     Predictions = [np.empty((n_dim, num_test)) for _ in range(len(model_confs))]
     MSE = [0.0] * len(model_confs)
@@ -178,17 +182,21 @@ for system_name in names:
             plt.legend(loc='upper right')
     plt.xlabel('t')
     # plt.savefig(system_name + '_replicate_dim.pdf')
+    plt.show()
 
 
     # y_gen = model.predict_multistep(x_train[:,:1], x.shape[-1])
     # y_gen = y_gen.reshape((-1, n_dim)).T
-    # print('LLE test:', LLE(x.T))
-    # print('LLE pred:', LLE(y_gen.T))
+    print('LLE test:', LLE(y_test.T))
+    print('LLE pred:', LLE(y_pred.T))
     #
     # print('CD test:', CD(x.T))
     # print('CD pred:', CD(y_gen.T))
+    print('CD test:', CD(y_test.T))
+    print('CD pred:', CD(y_pred.T))
+    plt.show()
 
-plt.show()
+
 
 
 

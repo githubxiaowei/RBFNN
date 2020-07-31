@@ -75,7 +75,6 @@ class RBFNN:
         self.N_f = 0
         self.beta = 1e-6
         self.method = 'ridge'
-        self.prepare_reservoir = False
 
         if self.model_type == ModelType.RBFLN:
             self.skip_con = 1
@@ -98,8 +97,9 @@ class RBFNN:
             self.N_h = 0
             self.reservoirConf = kwargs.get('reservoirConf')
             self.REncoder = ReservoirEncoder(self.reservoirConf)
-            self.encoder_func = self.REncoder.echostate
-            self.prepare_reservoir = True
+            self.encoder_func = self.REncoder.echostate \
+                if kwargs.get('encoder', 'echostate') == 'echostate' \
+                else self.REncoder.transform
 
         elif self.model_type == ModelType.RBFLN_RE:
             self.skip_con = 1
@@ -108,8 +108,9 @@ class RBFNN:
             self.sigma = kwargs.get('sigma', 1)
             self.reservoirConf = kwargs.get('reservoirConf')
             self.REncoder = ReservoirEncoder(self.reservoirConf)
-            # self.encoder_func = self.REncoder.echostate
-            self.encoder_func = self.REncoder.transform if kwargs.get('encoder', 'transform') == 'transform' else self.REncoder.echostate
+            self.encoder_func = self.REncoder.transform \
+                if kwargs.get('encoder', 'transform') == 'transform' \
+                else self.REncoder.echostate
 
         elif self.model_type == ModelType.ESN_ATTN:
             self.skip_con = 1
@@ -118,8 +119,9 @@ class RBFNN:
             self.sigma = kwargs.get('sigma', 1)
             self.reservoirConf = kwargs.get('reservoirConf')
             self.REncoder = ReservoirEncoder(self.reservoirConf)
-            self.encoder_func = self.REncoder.echostate
-            self.prepare_reservoir = True
+            self.encoder_func = self.REncoder.echostate \
+                if kwargs.get('encoder','echostate') == 'echostate' \
+                else self.REncoder.transform
 
     @staticmethod
     def pairwise_distances(X, Y):
@@ -166,8 +168,12 @@ class RBFNN:
                 self.N_f = 2*Z.shape[0]
 
         if self.skip_con:
-            H = np.vstack([H, X])
-            self.N_f += self.N_i
+            if self.model_type in [ModelType.ESN_ATTN, ModelType.ESN]:
+                H = np.vstack([H, X[-self.N_o:]])
+                self.N_f += self.N_o
+            else:
+                H = np.vstack([H, X])
+                self.N_f += self.N_i
 
         if self.bias:
             ones = np.ones((1, H.shape[1]))
@@ -198,6 +204,7 @@ class RBFNN:
                 # self.W_i = X.T[np.random.choice(X.shape[1],self.N_h,replace=False)]
 
         H = self._pre_output(X, Z)
+        # print('H shape:',H.shape)
 
         self.W_o = ridge_regressor(H, Y, self.beta)
 
@@ -216,6 +223,7 @@ class RBFNN:
         start = X.shape[0]
         Z[start:start + self.N_o, :] = self.predict(X)
         for i in range(1, horizon):
+            # print(Z[i * self.N_o: start + i * self.N_o, :])
             Z[start + i * self.N_o: start + (i + 1) * self.N_o, :] = self.predict(Z[i * self.N_o: start + i * self.N_o, :])
         return Z[start:, :]
 
@@ -230,8 +238,7 @@ class RBFNN:
             Y[i * self.N_o: (i + 1) * self.N_o] = y
             x = np.vstack([x, y])[-self.N_i:]
             z = self.REncoder.state_transition(z, y)
-        print(X[:,-2:])
-        print(Y[:2])
         return Y
+
 
 
