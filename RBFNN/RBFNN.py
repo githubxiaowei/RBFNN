@@ -13,6 +13,7 @@ class ReservoirEncoder:
         self.target_rho = reservoirConf.target_rho
         input_scale = reservoirConf.input_scale
         self.state = None
+        self.activation = reservoirConf.activation
 
         # sparse recurrent weights init
         if reservoirConf.connectivity < 1:
@@ -33,7 +34,7 @@ class ReservoirEncoder:
         self.B = np.random.uniform(-input_scale, input_scale, size=(self.nz, self.nu))
 
     def state_transition(self, z, u):
-        z = (1 - self.alpha) * z + self.alpha * np.tanh(self.A @ z + self.B @ u)
+        z = (1 - self.alpha) * z + self.alpha * self.activation(self.A @ z + self.B @ u)
         return z
 
     def transform(self, x):
@@ -93,7 +94,7 @@ class RBFNN:
             self.sigma = kwargs.get('sigma', 1)
 
         elif self.model_type == ModelType.ESN:
-            self.skip_con = 1
+            self.skip_con = kwargs.get('skip_con', 1)
             self.N_h = 0
             self.reservoirConf = kwargs.get('reservoirConf')
             self.REncoder = ReservoirEncoder(self.reservoirConf)
@@ -102,7 +103,7 @@ class RBFNN:
                 else self.REncoder.transform
 
         elif self.model_type == ModelType.RBFLN_RE:
-            self.skip_con = 1
+            self.skip_con = kwargs.get('skip_con', 1)
             self.activation = kwargs.get('activation', 'rbf')
             self.N_h = kwargs.get('N_h')
             self.sigma = kwargs.get('sigma', 1)
@@ -113,7 +114,7 @@ class RBFNN:
                 else self.REncoder.echostate
 
         elif self.model_type == ModelType.ESN_ATTN:
-            self.skip_con = 1
+            self.skip_con = kwargs.get('skip_con', 1)
             self.activation = 'rbf'
             self.N_h = kwargs.get('N_h')
             self.sigma = kwargs.get('sigma', 1)
@@ -238,6 +239,7 @@ class RBFNN:
             Y[i * self.N_o: (i + 1) * self.N_o] = y
             x = np.vstack([x, y])[-self.N_i:]
             z = self.REncoder.state_transition(z, y)
+            # print(np.min(z), np.max(z))
         return Y
 
 

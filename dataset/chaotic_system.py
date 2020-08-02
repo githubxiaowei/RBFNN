@@ -216,7 +216,7 @@ if __name__ == '__main__':
         x, min_max3d = rescale(x, recover=True)
 
         np.savetxt(system_name + '.txt', x.T, fmt='%.8e', delimiter=',')
-        x = np.array([[0.3,0.3,0.4]]).dot(x)
+        x = np.array([[1,0,0]]).dot(x)
         x, min_max1d = rescale(x, recover=True)
         np.savetxt(system_name+'1d.txt', x, fmt='%.8e',delimiter=',')
 
