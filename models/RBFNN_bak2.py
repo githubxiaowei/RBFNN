@@ -57,9 +57,8 @@ class ModelType(Enum):
     VAR = 1
     ESN = 2
     RBFN = 3
-    RBFLN = 4
-    RBFLN_RE = 5
-    ESN_ATTN = 6
+    RBFN_RE = 4
+    ESN_ATTN = 5
 
 
 class RBFNN:
@@ -77,18 +76,12 @@ class RBFNN:
         self.beta = 1e-6
         self.method = 'ridge'
 
-        if self.model_type == ModelType.RBFLN:
-            self.skip_con = 1
-            self.activation = 'rbf'
-            self.N_h = kwargs.get('N_h')
-            self.sigma = kwargs.get('sigma', 1)
-
-        elif self.model_type == ModelType.VAR:
+        if self.model_type == ModelType.VAR:
             self.skip_con = 1
             self.N_h = 0
 
         elif self.model_type == ModelType.RBFN:
-            self.skip_con = 0
+            self.skip_con = kwargs.get('skip_con', 0)
             self.activation = 'rbf'
             self.N_h = kwargs.get('N_h')
             self.sigma = kwargs.get('sigma', 1)
@@ -102,8 +95,8 @@ class RBFNN:
                 if kwargs.get('encoder', 'echostate') == 'echostate' \
                 else self.REncoder.transform
 
-        elif self.model_type == ModelType.RBFLN_RE:
-            self.skip_con = kwargs.get('skip_con', 1)
+        elif self.model_type == ModelType.RBFN_RE:
+            self.skip_con = kwargs.get('skip_con', 0)
             self.activation = kwargs.get('activation', 'rbf')
             self.N_h = kwargs.get('N_h')
             self.sigma = kwargs.get('sigma', 1)
@@ -114,7 +107,7 @@ class RBFNN:
                 else self.REncoder.echostate
 
         elif self.model_type == ModelType.ESN_ATTN:
-            self.skip_con = kwargs.get('skip_con', 1)
+            self.skip_con = kwargs.get('skip_con', 0)
             self.activation = 'rbf'
             self.N_h = kwargs.get('N_h')
             self.sigma = kwargs.get('sigma', 1)

@@ -161,7 +161,7 @@ def rescale(x, recover=False):
         return (x - row_min) / (row_max - row_min)
 
 
-def  extract_num(conf):
+def extract_num(conf):
     numstr = conf.split(' ')[-1]
     parts = numstr.split('/')
     if len(parts) == 1:
