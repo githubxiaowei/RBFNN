@@ -4,3 +4,4 @@ from .ESN import ESN
 from .ESN_ATTN import ESN_ATTN
 from .VAR import VAR
 from .Reservoir import ReservoirEncoder
+from .ESN_ATTN_simple import ESN_ATTN_simple

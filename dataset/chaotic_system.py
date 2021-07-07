@@ -1,9 +1,19 @@
 import numpy as np
 import numba
 from math import *
-from utils import rescale
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+
+def rescale(x, recover=False):
+    x = np.atleast_2d(x)
+    row_max = np.max(x, axis=1).reshape((x.shape[0], 1))
+    row_min = np.min(x, axis=1).reshape((x.shape[0], 1))
+    if recover:
+        return (x - row_min) / (row_max - row_min), (row_min, row_max)
+    else:
+        return 2*(x - row_min) / (row_max - row_min)-1
+
+
 
 def dxdt(F, X, t, h=1e-2):
     assert(len(F )==len(X))
@@ -15,9 +25,7 @@ def dxdt(F, X, t, h=1e-2):
     K3 = np.array([f(X + dX, t + h / 2) for f in F])
     dX = h * K3
     K4 = np.array([f(X + dX, t + h) for f in F])
-
     dX = (K1 + 2 * K2 + 2 * K3 + K4) * h / 6
-
     return dX
 
 
@@ -40,10 +48,12 @@ def gen_model(name: str):
     chaotic_systems = dict(
         rossler=Rossler,
         rabinovich_fabrikant=RabinovichFabrikant,
-        lorentz=Lorentz,
+        lorenz=Lorenz,
         chen=Chen,
         chua=Chua,
-        switch=Switch
+        switch=Switch,
+        three_scroll=three_scroll,
+        four_scroll=four_scroll
     )
 
     if name not in chaotic_systems:
@@ -54,9 +64,9 @@ def gen_model(name: str):
 
 
 def Rossler():
-    A = 0.4
-    B = 0.5
-    C = 4.5
+    A = 0.2
+    B = 0.2
+    C = 5.7
     x0, y0, z0 = -2.0, 2.0, 0.2
 
     def f1(X, t):
@@ -71,7 +81,7 @@ def Rossler():
         x, y, z = X[0], X[1], X[2]
         return B + z * (x - C)
 
-    return [f1, f2, f3], [x0, y0, z0], 1e-1
+    return [f1, f2, f3], [x0, y0, z0], 1e-2
 
 
 def Switch():
@@ -119,7 +129,7 @@ def RabinovichFabrikant():
         x, y, z = X[0], X[1], X[2]
         return -2 * z * (ParamA + x * y)
 
-    return [f1, f2, f3], [x0, y0, z0], 1e-1
+    return [f1, f2, f3], [x0, y0, z0], 1e-2
 
 
 def Chua():
@@ -146,10 +156,10 @@ def Chua():
         x, y, z = X[0], X[1], X[2]
         return -b * y
 
-    return [f1, f2, f3], [x0, y0, z0], 1e-1
+    return [f1, f2, f3], [x0, y0, z0], 1e-2
 
 
-def Lorentz():
+def Lorenz():
     '''
     2 vortex lorentz
     '''
@@ -171,16 +181,13 @@ def Lorentz():
         x, y, z = X[0], X[1], X[2]
         return x * y - C * z
 
-    return [f1, f2, f3], [x0, y0, z0], 5e-2
+    return [f1, f2, f3], [x0, y0, z0], 1e-2
 
 
 def Chen():
     a = 40.
     b = 3.
     c = 28.
-    x0 = -0.1
-    y0 = 0.5
-    z0 = -0.6
 
     x0, y0, z0 = 8.4, 7.7, 18.5
 
@@ -198,31 +205,75 @@ def Chen():
 
     return [f1, f2, f3], [x0, y0, z0], 2e-2
 
+def three_scroll():
+    a = 0.977
+    b = 10
+    c = 4
+    d = 0.1
+    x0, y0, z0 = 0.01, 0.01, 0.01
+
+    def f1(X, t):
+        x, y, z = X[0], X[1], X[2]
+        return a * (x - y) - y*z
+
+    def f2(X, t):
+        x, y, z = X[0], X[1], X[2]
+        return -b*y +x*z
+
+    def f3(X, t):
+        x, y, z = X[0], X[1], X[2]
+        return -c*z + d*x + x*y
+
+    return [f1, f2, f3], [x0, y0, z0], 1e-2
+
+def four_scroll():
+    a = 1.46
+    b = 9
+    c = 5
+    d = 0.06
+    x0, y0, z0 = 0.01, 0.01, 0.01
+
+    def f1(X, t):
+        x, y, z = X[0], X[1], X[2]
+        return a * (x - y) - y*z
+
+    def f2(X, t):
+        x, y, z = X[0], X[1], X[2]
+        return -b*y +x*z
+
+    def f3(X, t):
+        x, y, z = X[0], X[1], X[2]
+        return -c*z + d*x + x*y
+
+    return [f1, f2, f3], [x0, y0, z0], 1e-2
+
 if __name__ == '__main__':
     names = [
         'rossler',
         'rabinovich_fabrikant',
-        'lorentz',
+        'lorenz',
         'chua',
+        # 'three_scroll',
+        # 'four_scroll'
     ]
 
-    N = 10000
+    N = 100000
 
     for system_name in names:
         print(system_name)
 
         functions, start_point, step = gen_model(system_name)
         x = trajectory(functions, start_point, N, step)
-        x, min_max3d = rescale(x, recover=True)
+        x = rescale(x)
 
         np.savetxt(system_name + '.txt', x.T, fmt='%.8e', delimiter=',')
-        x = np.array([[1,0,0]]).dot(x)
-        x, min_max1d = rescale(x, recover=True)
-        np.savetxt(system_name+'1d.txt', x, fmt='%.8e',delimiter=',')
+#         x = np.array([[1,0,0]]).dot(x)
+#         x, min_max1d = rescale(x, recover=True)
+#         np.savetxt(system_name+'1d.txt', x, fmt='%.8e',delimiter=',')
 
-        scales = np.vstack([np.hstack(min_max3d),
-                            np.hstack(min_max1d)])
-        np.savetxt(system_name+'_recover.txt', scales, fmt='%.8e',delimiter=',')
+#         scales = np.vstack([np.hstack(min_max3d),
+#                             np.hstack(min_max1d)])
+#         np.savetxt(system_name+'_recover.txt', scales, fmt='%.8e',delimiter=',')
 
 
 

@@ -55,7 +55,7 @@ class ESN_ATTN:
             (2 * self.sigma ** 2 * self.sigmas.reshape((-1, 1)))
         )  # (N_h, N_samples)
 
-        H = self.col_normalize(H)
+        # H = self.col_normalize(H)
         H = self.W_i.T @ H
         H = np.vstack([H, Z])
 
